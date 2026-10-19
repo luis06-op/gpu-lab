@@ -133,7 +133,8 @@ Se puede girar, acercar, cambiar de modelo y superponer la malla de alambre.
 
 La escena no se dibuja directamente en pantalla: pasa por un búfer **HDR half-float**, un pase
 de brillo, dos desenfoques gaussianos separables (a media y a un cuarto de resolución) y un pase
-final con aberración cromática radial, líneas de barrido, grano y viñeta.
+final con aberración cromática radial, líneas de barrido, grano y viñeta. 
+https://luis06-op.github.io/gpu-lab/
 
 > **En la GPU:** 6 pases de pantalla completa sobre 841 000 píxeles por fotograma.
 
