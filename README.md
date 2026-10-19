@@ -149,7 +149,7 @@ y 120 Hz (el informe completo está en [`docs/RENDIMIENTO.md`](docs/RENDIMIENTO.
 | 01 | Árbol neón | 0,07 ms | 9 | 5 928 pts · 434 tri | 120 |
 | 02 | Galaxia de partículas | 0,20 ms | 3 | 180 000 pts | 120 |
 | 03 | Raymarching SDF | 0,48 ms | 1 | 2 tri (todo en el shader) | 120 |
-| 04 | Partículas GPGPU | 0,08–0,15 ms | 3 | 66 136 pts | 120 |
+| 04 | Partículas GPGPU | 0,08–0,19 ms | 3 | 66 136 pts | 120 |
 | 05 | Terreno procedural | 0,13–0,21 ms | 11 | 155 700 tri | 119 |
 | 06 | Ciudad instanciada | 0,24–0,33 ms | 5 (1 para la ciudad) | 97 204 tri | 120 |
 | 07 | Visor de modelos | 0,28 ms | 5 | 20 072 tri | 120 |
