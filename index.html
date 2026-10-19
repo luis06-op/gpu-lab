@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU LAB · animaciones y modelos 3D en tiempo real</title>
+<link rel="stylesheet" href="assets/css/lab.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">WEBGL · GLSL · RENDER EN TIEMPO REAL</div>
+    <h1>GPU LAB</h1>
+    <p>
+      Ocho escenas 3D que se calculan íntegramente dentro de la <b>tarjeta gráfica</b>:
+      nubes de partículas, ray tracing por distancias firmadas, simulación de partículas
+      con ping-pong en texturas flotantes, terreno deformado en el vertex shader, ciudades
+      instanciadas, materiales PBR con sombras y una cadena de post-proceso propia.
+    </p>
+    <div class="gpu-line" id="gpu-line">detectando la tarjeta gráfica…</div>
+  </header>
+
+  <section class="grid">
+
+    <a class="card" href="demos/01-arbol-neon/index.html">
+      <div class="n">DEMO 01</div>
+      <h3>Árbol neón</h3>
+      <p>Árbol recursivo dibujado como nube de puntos con mezcla aditiva, luciérnagas y anillos de radar.</p>
+      <div class="tags"><span>nube de puntos</span><span class="gpu">blending</span></div>
+    </a>
+
+    <a class="card" href="demos/02-galaxia-particulas/index.html">
+      <div class="n">DEMO 02</div>
+      <h3>Galaxia de partículas</h3>
+      <p>180 000 estrellas en espiral. La rotación diferencial de los brazos se resuelve en el vertex shader.</p>
+      <div class="tags"><span>180 000 pts</span><span class="gpu">vertex shader</span></div>
+    </a>
+
+    <a class="card" href="demos/03-raymarching/index.html">
+      <div class="n">DEMO 03</div>
+      <h3>Raymarching SDF</h3>
+      <p>Sin geometría: un único shader de fragmento recorre la escena y acumula brillo píxel a píxel.</p>
+      <div class="tags"><span>sphere tracing</span><span class="gpu">fragment shader</span></div>
+    </a>
+
+    <a class="card" href="demos/04-gpgpu-particulas/index.html">
+      <div class="n">DEMO 04</div>
+      <h3>Partículas GPGPU</h3>
+      <p>65 536 partículas simuladas en la GPU con ping-pong de texturas flotantes. El procesador no toca los datos.</p>
+      <div class="tags"><span>4 × 256²</span><span class="gpu">cómputo en GPU</span></div>
+    </a>
+
+    <a class="card" href="demos/05-terreno-procedural/index.html">
+      <div class="n">DEMO 05</div>
+      <h3>Terreno procedural</h3>
+      <p>Malla plana de 78 400 vértices convertida en cordillera dentro del vertex shader, con curvas de nivel.</p>
+      <div class="tags"><span>78 400 vértices</span><span class="gpu">desplazamiento</span></div>
+    </a>
+
+    <a class="card" href="demos/06-ciudad-instanciada/index.html">
+      <div class="n">DEMO 06</div>
+      <h3>Ciudad instanciada</h3>
+      <p>8 100 edificios en una sola llamada de dibujo, con ventanas, onda de energía y niebla por fragmento.</p>
+      <div class="tags"><span>instancing</span><span class="gpu">1 draw call</span></div>
+    </a>
+
+    <a class="card" href="demos/07-visor-modelos/index.html">
+      <div class="n">DEMO 07</div>
+      <h3>Visor de modelos</h3>
+      <p>Materiales PBR, mapas de sombra de 2048² y entorno prefiltrado con PMREM para reflejos reales.</p>
+      <div class="tags"><span>PBR</span><span class="gpu">sombras + PMREM</span></div>
+    </a>
+
+    <a class="card" href="demos/08-postproceso-bloom/index.html">
+      <div class="n">DEMO 08</div>
+      <h3>Bloom y post-proceso</h3>
+      <p>Seis pases propios: brillo, dos desenfoques gaussianos separables y compuesto con aberración y grano.</p>
+      <div class="tags"><span>HDR</span><span class="gpu">6 pases</span></div>
+    </a>
+
+  </section>
+
+  <div class="foot-note">
+    <b>Medido en este equipo</b> · AMD Radeon RX 9060 XT · 120 Hz · todas las demos a 119–120 FPS
+    con un coste de GPU de <b>0,07 a 0,48 ms</b> por fotograma (menos del 6 % de los 8,33 ms disponibles).<br>
+    <b>Motor compartido</b> · <code>assets/js/lab-core.js</code> ·
+    <b>Arnés de captura</b> · <code>tools/capture.html</code> ·
+    <b>Informe completo</b> · <code>docs/RENDIMIENTO.md</code>
+  </div>
+
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script>
+/* Detecta la tarjeta gráfica real y la muestra en la portada. */
+(function () {
+  const el = document.getElementById('gpu-line');
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2') ||
+               document.createElement('canvas').getContext('webgl');
+    if (!gl) { el.textContent = 'WebGL no disponible en este navegador'; return; }
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const nombre = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    const ver = gl.getParameter(gl.VERSION);
+    const timer = !!gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    el.innerHTML = 'Tu GPU · <b style="color:#00ff41">' + nombre + '</b> · ' +
+                   ver + (timer ? ' · cronómetro de GPU disponible' : '');
+  } catch (e) {
+    el.textContent = 'no se pudo leer la tarjeta gráfica';
+  }
+})();
+</script>
+</body>
+</html>

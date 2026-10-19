@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 · Raymarching SDF — GPU LAB</title>
+<link rel="stylesheet" href="../../assets/css/lab.css">
+</head>
+<body class="demo">
+<canvas id="view"></canvas>
+
+<div class="overlay">
+  <div class="tag">
+    <div class="num">DEMO 03 · FRAGMENT SHADER PURO</div>
+    <h1>Raymarching SDF</h1>
+    <p>Aquí <b>no hay geometría</b>: ni un solo triángulo. La imagen completa nace de
+       un único shader de fragmento que recorre distancias firmadas (SDF) y acumula
+       brillo, píxel por píxel, en la GPU.</p>
+  </div>
+  <div class="hud" id="hud"></div>
+  <div class="foot">
+    <span class="pill">1 quad · 110 pasos por píxel</span>
+    <a href="../../index.html">← índice</a>
+  </div>
+</div>
+
+<script src="../../vendor/three.min.js"></script>
+<script src="../../assets/js/lab-core.js"></script>
+<script>
+/* =====================================================================
+   03 · RAYMARCHING SDF
+   Un solo plano que cubre la pantalla. El fragment shader define una
+   escena (suelo, toro, núcleo y satélites), la recorre con sphere tracing
+   y pinta el resultado con acumulación de glow.
+   ===================================================================== */
+LAB.boot({
+  name: '03-raymarching',
+  period: 24,
+  frames: 44,
+  orbit: false,
+  stats: { pasos: '', primitivas: '' },
+
+  build(ctx) {
+    const { renderer, scene } = ctx;
+
+    const quad = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uRes: { value: new THREE.Vector2(1, 1) },
+          uTime: { value: 0 }
+        },
+        vertexShader: /* glsl */`
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = vec4(position.xy, 0.0, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */`
+          precision highp float;
+
+          varying vec2 vUv;
+          uniform vec2  uRes;
+          uniform float uTime;
+
+          const float TAU   = 6.2831853;
+          const float FLOOR = -3.0;
+          const vec3  GREEN = vec3(0.00, 1.00, 0.25);
+          const vec3  BLUE  = vec3(0.22, 0.74, 0.97);
+
+          mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+
+          float sdSphere(vec3 p, float r) { return length(p) - r; }
+          float sdTorus(vec3 p, vec2 t) { vec2 q = vec2(length(p.xz) - t.x, p.y); return length(q) - t.y; }
+
+          // escena: devuelve la distancia y cuánto brilla ese punto
+          float map(vec3 p, out float glow) {
+            float d = p.y - FLOOR;                       // suelo
+
+            vec3 q = p; q.y -= 1.0;
+            q.xz *= rot(uTime * 0.55);
+            q.yz *= rot(sin(uTime * 0.31) * 0.55);
+            float tor = sdTorus(q, vec2(3.5, 0.40));
+
+            vec3 c = vec3(0.0, 1.0 + sin(uTime * 1.7) * 0.28, 0.0);
+            float core = sdSphere(p - c, 1.05 + sin(uTime * 2.3) * 0.07);
+
+            for (int i = 0; i < 3; i++) {
+              float fi = float(i);
+              float a = uTime * 0.85 + fi * TAU / 3.0;
+              vec3 s = vec3(cos(a) * 5.4, 1.0 + sin(a * 2.0 + fi) * 2.3, sin(a) * 5.4);
+              core = min(core, sdSphere(p - s, 0.30));
+            }
+
+            float k = min(min(d, tor), core);
+            glow = exp(-abs(k) * 2.2);
+            return k;
+          }
+
+          float mapPlain(vec3 p) { float g; return map(p, g); }
+
+          void main() {
+            vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+
+            float a = uTime * 0.33;
+            vec3 ro = vec3(sin(a) * 13.5, 4.4 + sin(uTime * 0.47) * 1.5, cos(a) * 13.5);
+            vec3 ta = vec3(0.0, 0.6, 0.0);
+            vec3 f  = normalize(ta - ro);
+            vec3 r  = normalize(cross(vec3(0.0, 1.0, 0.0), f));
+            vec3 up = cross(f, r);
+            vec3 rd = normalize(f * 2.0 + r * uv.x + up * uv.y);
+
+            float t = 0.02, glow = 0.0, g;
+            for (int i = 0; i < 100; i++) {
+              vec3 p = ro + rd * t;
+              float d = map(p, g);
+              glow += g * 0.014;
+              if (d < 0.0016 * t) break;
+              t += max(d * 0.84, 0.012);
+              if (t > 62.0) break;
+            }
+
+            vec3 col = vec3(0.0);
+
+            // halo volumétrico alrededor de la geometría
+            col += GREEN * min(glow, 6.0) * 0.026;
+
+            if (t < 62.0) {
+              vec3 p = ro + rd * t;
+              vec3 e = vec3(0.0022, 0.0, 0.0);
+              vec3 n = normalize(vec3(
+                mapPlain(p + e.xyy) - mapPlain(p - e.xyy),
+                mapPlain(p + e.yxy) - mapPlain(p - e.yxy),
+                mapPlain(p + e.yyx) - mapPlain(p - e.yyx)
+              ));
+              float dif  = clamp(dot(n, normalize(vec3(0.55, 1.0, 0.35))), 0.0, 1.0);
+              float fres = pow(1.0 - clamp(dot(n, -rd), 0.0, 1.0), 3.0);
+              col += mix(vec3(0.01, 0.05, 0.03), GREEN, dif) * dif * 0.72;
+              col += BLUE * fres * 0.55;
+              col += GREEN * min(glow, 8.0) * 0.018;
+            }
+
+            // rejilla del suelo
+            float tp = (FLOOR - ro.y) / min(rd.y, -1e-5);
+            if (tp > 0.0) {
+              vec3 p = ro + rd * tp;
+              vec2 gr = abs(fract(p.xz * 0.5) - 0.5) / 0.5;
+              float line = pow(1.0 - min(min(gr.x, gr.y), 1.0), 7.0);
+              col += GREEN * line * exp(-tp * 0.055) * 0.32;
+            }
+
+            col = mix(col, BLUE * 0.30, clamp(glow * 0.010, 0.0, 0.40));
+            col *= 1.0 - 0.32 * dot(uv, uv);              // viñeta
+            col = col / (1.0 + col);                      // tone mapping suave
+            col = pow(max(col, 0.0), vec3(0.82));         // gamma
+
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `
+      })
+    );
+    quad.frustumCulled = false;
+    scene.add(quad);
+
+    ctx.report({ pasos: '100', primitivas: '6' });
+
+    // El vertex shader del quad ignora las matrices, así que la cámara da igual.
+    return {
+      resize(w, h) {
+        const dpr = renderer.getPixelRatio();
+        quad.material.uniforms.uRes.value.set(w * dpr, h * dpr);
+      },
+      update(t) {
+        quad.material.uniforms.uTime.value = t;
+      }
+    };
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,278 @@
+/* =====================================================================
+   GPU LAB — hoja de estilo compartida
+   Paleta: verde neón #00FF41 · azul #38BDF8 · fondo #040706
+   ===================================================================== */
+:root {
+  --green: #00ff41;
+  --green-dim: rgba(0, 255, 65, 0.55);
+  --mint: #9dffc0;
+  --blue: #38bdf8;
+  --bg: #040706;
+  --panel: rgba(4, 12, 9, 0.72);
+  --line: rgba(0, 255, 65, 0.28);
+  --text: #cfe9dc;
+  --muted: #7f9b8d;
+  --mono: Consolas, "Cascadia Mono", "Courier New", monospace;
+  --sans: "Segoe UI", Inter, system-ui, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body.demo { overflow: hidden; }
+
+/* ------------------------------------------------ lienzo y capas ------ */
+#view {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.overlay > * { pointer-events: auto; }
+
+/* ------------------------------------------------ panel de título ----- */
+.tag {
+  position: absolute;
+  top: 22px;
+  left: 24px;
+  max-width: min(46ch, 52vw);
+  padding: 14px 18px 15px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--green);
+  border-radius: 4px;
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+}
+
+.tag .num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--green);
+  opacity: 0.85;
+}
+
+.tag h1 {
+  margin: 6px 0 6px;
+  font-size: clamp(20px, 2.4vw, 30px);
+  line-height: 1.1;
+  font-weight: 800;
+  color: #f2fff7;
+  text-shadow: 0 0 18px rgba(0, 255, 65, 0.45);
+}
+
+.tag p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.tag b { color: var(--mint); font-weight: 600; }
+
+/* ------------------------------------------------ HUD ------------- */
+.hud {
+  position: absolute;
+  top: 22px;
+  right: 24px;
+  min-width: 232px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--text);
+}
+
+.hud .row { display: flex; justify-content: space-between; gap: 14px; }
+.hud .k { color: var(--muted); }
+.hud .v { color: var(--mint); }
+.hud .v.hot { color: var(--green); text-shadow: 0 0 10px rgba(0, 255, 65, 0.5); }
+.hud .gpu {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 10.5px;
+  color: var(--blue);
+  word-break: break-word;
+}
+.hud .gpu span { color: var(--muted); }
+
+/* ------------------------------------------------ pie ------------- */
+.foot {
+  position: absolute;
+  left: 24px;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.foot a {
+  color: var(--green);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(0, 255, 65, 0.35);
+}
+
+.foot a:hover { color: #fff; border-bottom-color: #fff; }
+
+.pill {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  background: rgba(0, 255, 65, 0.05);
+}
+
+/* ------------------------------------------------ índice ------------- */
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 46px 22px 70px;
+}
+
+.hero {
+  text-align: center;
+  padding: 20px 0 34px;
+  border-bottom: 1px solid var(--line);
+}
+
+.hero .kicker {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: var(--green);
+}
+
+.hero h1 {
+  margin: 12px 0 10px;
+  font-size: clamp(34px, 6vw, 60px);
+  font-weight: 800;
+  letter-spacing: -1px;
+  color: #f2fff7;
+  text-shadow: 0 0 34px rgba(0, 255, 65, 0.35);
+}
+
+.hero p {
+  max-width: 62ch;
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.hero .gpu-line {
+  margin-top: 18px;
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--blue);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 16px;
+  margin-top: 34px;
+}
+
+.card {
+  display: block;
+  padding: 16px 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(6, 26, 18, 0.65), rgba(3, 12, 8, 0.65));
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+
+.card:hover {
+  border-color: var(--green);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px rgba(0, 255, 65, 0.12);
+}
+
+.card .n {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--green);
+}
+
+.card h3 {
+  margin: 8px 0 8px;
+  font-size: 17px;
+  color: #f2fff7;
+}
+
+.card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.card .tags {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.card .tags span {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  color: var(--mint);
+}
+
+.card .tags span.gpu {
+  color: var(--blue);
+  border-color: rgba(56, 189, 248, 0.45);
+}
+
+.foot-note {
+  margin-top: 44px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.9;
+}
+
+.foot-note b { color: var(--mint); }
+
+@media (max-width: 720px) {
+  .hud { display: none; }
+  .tag { max-width: 78vw; }
+}

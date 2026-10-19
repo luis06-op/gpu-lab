@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 · Galaxia de partículas — GPU LAB</title>
+<link rel="stylesheet" href="../../assets/css/lab.css">
+</head>
+<body class="demo">
+<canvas id="view"></canvas>
+
+<div class="overlay">
+  <div class="tag">
+    <div class="num">DEMO 02 · VERTEX SHADER</div>
+    <h1>Galaxia de partículas</h1>
+    <p>180 000 estrellas en espiral. La posición de cada partícula <b>no se calcula en
+       JavaScript</b>: el vertex shader resuelve la rotación diferencial de los brazos
+       en paralelo dentro de la GPU, fotograma a fotograma.</p>
+  </div>
+  <div class="hud" id="hud"></div>
+  <div class="foot">
+    <span class="pill">arrastra para orbitar</span>
+    <a href="../../index.html">← índice</a>
+  </div>
+</div>
+
+<script src="../../vendor/three.min.js"></script>
+<script src="../../assets/js/lab-core.js"></script>
+<script>
+/* =====================================================================
+   02 · GALAXIA DE PARTÍCULAS
+   Los atributos guardan radio, ángulo, brillo y semilla. El vertex shader
+   aplica rotación diferencial (más rápida en el núcleo) y tamaño por
+   distancia. El fragment shader redondea cada punto a un disco con brillo.
+   ===================================================================== */
+LAB.boot({
+  name: '02-galaxia-particulas',
+  period: 22,
+  frames: 46,
+  fov: 55,
+  camera: { pos: [0, 15, 34], target: [0, 0, 0] },
+  orbitOpts: { minRadius: 12, maxRadius: 120, maxPolar: 1.5 },
+  stats: { partículas: '', brazos: '' },
+
+  build(ctx) {
+    const { scene } = ctx;
+    const TAU = LAB.TAU;
+    const rand = LAB.rng(31415);
+
+    const COUNT = 180000;
+    const ARMS = 4;
+    const R = 24;
+
+    const pos = new Float32Array(COUNT * 3);   // posición base (semilla)
+    const aRad = new Float32Array(COUNT);
+    const aAng = new Float32Array(COUNT);
+    const aSize = new Float32Array(COUNT);
+    const aSeed = new Float32Array(COUNT);
+    const aLum = new Float32Array(COUNT);
+
+    for (let i = 0; i < COUNT; i++) {
+      const arm = i % ARMS;
+      const t = Math.pow(rand(), 0.62);                 // concentración hacia el núcleo
+      const radius = 0.6 + t * R;
+      const spiral = radius * 0.42;                     // enrollado del brazo
+      const jitter = (rand() - 0.5) * (0.55 + t * 2.1); // grosor del brazo
+      const angle = (arm / ARMS) * TAU + spiral + jitter * 0.35;
+
+      aRad[i] = radius;
+      aAng[i] = angle;
+      aSeed[i] = rand();
+      aLum[i] = 0.35 + Math.pow(rand(), 2.2) * 0.95;
+      aSize[i] = 0.7 + Math.pow(rand(), 3) * 3.4;
+
+      // posición base (el shader la recalcula, aquí solo se guarda la referencia
+      // para que Three.js pueda calcular el frustum culling de forma correcta)
+      const y = (rand() - 0.5) * (0.5 + t * 1.6);
+      pos[i * 3] = Math.cos(angle) * radius;
+      pos[i * 3 + 1] = y;
+      pos[i * 3 + 2] = Math.sin(angle) * radius;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('aRadius', new THREE.BufferAttribute(aRad, 1));
+    geo.setAttribute('aAngle', new THREE.BufferAttribute(aAng, 1));
+    geo.setAttribute('aSize', new THREE.BufferAttribute(aSize, 1));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
+    geo.setAttribute('aLum', new THREE.BufferAttribute(aLum, 1));
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), R * 1.6);
+
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uPixelRatio: { value: ctx.renderer.getPixelRatio() },
+        uCore: { value: new THREE.Color(0xf6fff2) },
+        uArm: { value: new THREE.Color(0x00ff41) },
+        uRim: { value: new THREE.Color(0x38bdf8) }
+      },
+      vertexShader: /* glsl */`
+        attribute float aRadius;
+        attribute float aAngle;
+        attribute float aSize;
+        attribute float aSeed;
+        attribute float aLum;
+
+        uniform float uTime;
+        uniform float uPixelRatio;
+        uniform vec3 uCore;
+        uniform vec3 uArm;
+        uniform vec3 uRim;
+
+        varying vec3 vColor;
+        varying float vLum;
+
+        void main() {
+          // rotación diferencial: el núcleo gira más rápido que el borde
+          float speed = 0.30 + 1.5 / (1.0 + aRadius * 0.55);
+          float ang = aAngle + uTime * speed;
+
+          // pequeña ondulación vertical por partícula
+          float wob = sin(uTime * 0.9 + aSeed * 6.2831) * (0.12 + aRadius * 0.035);
+
+          vec3 p = vec3(cos(ang) * aRadius, wob, sin(ang) * aRadius);
+
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          gl_Position = projectionMatrix * mv;
+          gl_PointSize = aSize * uPixelRatio * (58.0 / max(-mv.z, 0.001));
+
+          float k = smoothstep(0.0, R_MAX, aRadius);
+          vec3 col = mix(uArm, uRim, k);
+          col = mix(uCore, col, smoothstep(0.0, 3.2, aRadius));
+          vColor = col;
+          vLum = aLum;
+        }
+      `.replace(/R_MAX/g, R.toFixed(1)),
+      fragmentShader: /* glsl */`
+        varying vec3 vColor;
+        varying float vLum;
+
+        void main() {
+          vec2 d = gl_PointCoord - 0.5;
+          float r = length(d);
+          if (r > 0.5) discard;
+          float core = smoothstep(0.5, 0.0, r);
+          float halo = pow(core, 2.6);
+          gl_FragColor = vec4(vColor * (halo * 1.6 + 0.12) * vLum, core * 0.9);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    const galaxy = new THREE.Points(geo, material);
+    galaxy.frustumCulled = false;
+    scene.add(galaxy);
+
+    // núcleo brillante
+    const core = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: LAB.glowTexture('rgba(255,255,255,0.95)', 'rgba(0,255,65,0)', 128),
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85
+    }));
+    core.scale.set(14, 14, 1);
+    scene.add(core);
+
+    scene.add(LAB.stars(1200, 320, 0x9dffc0, 0.9));
+
+    ctx.report({
+      'partículas': COUNT.toLocaleString('es-CO'),
+      brazos: String(ARMS)
+    });
+
+    return {
+      update(t) {
+        material.uniforms.uTime.value = t;
+        core.material.opacity = 0.75 + Math.sin(t * 1.6) * 0.12;
+        core.scale.setScalar(14 + Math.sin(t * 2.2) * 0.8);
+      }
+    };
+  }
+});
+</script>
+</body>
+</html>

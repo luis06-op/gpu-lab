@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 · Terreno procedural — GPU LAB</title>
+<link rel="stylesheet" href="../../assets/css/lab.css">
+</head>
+<body class="demo">
+<canvas id="view"></canvas>
+
+<div class="overlay">
+  <div class="tag">
+    <div class="num">DEMO 05 · VERTEX SHADER</div>
+    <h1>Terreno procedural</h1>
+    <p>Una malla plana de <b>78 400 vértices</b> que se convierte en cordillera dentro de
+       la GPU: el vertex shader calcula la altura con funciones periódicas, obtiene la
+       normal por diferencias finitas y el fragment shader dibuja curvas de nivel y
+       rejilla topográfica.</p>
+  </div>
+  <div class="hud" id="hud"></div>
+  <div class="foot">
+    <span class="pill">sobrevuelo automático</span>
+    <a href="../../index.html">← índice</a>
+  </div>
+</div>
+
+<script src="../../vendor/three.min.js"></script>
+<script src="../../assets/js/lab-core.js"></script>
+<script>
+/* =====================================================================
+   05 · TERRENO PROCEDURAL
+   La geometría base es plana. Todo el relieve nace en el vertex shader
+   con funciones seno/coseno cuyas fases son múltiplos enteros de un
+   ángulo que completa 2π por ciclo: el bucle queda perfecto.
+   ===================================================================== */
+const PERIOD = 26;
+
+LAB.boot({
+  name: '05-terreno-procedural',
+  period: PERIOD,
+  frames: 52,
+  fov: 55,
+  near: 0.5,
+  far: 900,
+  orbit: false,
+  camera: { pos: [0, 14, 46], target: [0, 2, 0] },
+  stats: { vértices: '78 400', triángulos: '156 800' },
+
+  build(ctx) {
+    const { scene, camera } = ctx;
+
+    const SEG = 279;
+    const SIZE = 150;
+    const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
+    geo.rotateX(-Math.PI / 2);
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uPhase: { value: 0 },
+        uGreen: { value: new THREE.Color(0x00ff41) },
+        uBlue: { value: new THREE.Color(0x38bdf8) },
+        uFog: { value: new THREE.Color(0x03110a) }
+      },
+      vertexShader: /* glsl */`
+        precision highp float;
+
+        uniform float uPhase;
+        varying float vH;
+        varying vec3  vWorld;
+        varying vec3  vNormal;
+        varying float vDist;
+
+        // relieve periódico: todos los multiplicadores de uPhase son enteros
+        float hgt(vec2 p, float ph) {
+          float h = 0.0;
+          h += sin(p.x * 0.115 + ph)        * cos(p.y * 0.098 + ph)        * 6.20;
+          h += sin(p.x * 0.263 - ph * 2.0)  * cos(p.y * 0.291 + ph * 2.0)  * 2.85;
+          h += sin((p.x + p.y) * 0.481 + ph * 3.0)                         * 1.30;
+          h += sin((p.x - p.y) * 0.742 - ph * 2.0)                         * 0.58;
+          h += sin(p.x * 1.13 + ph * 4.0) * cos(p.y * 1.27 - ph * 4.0)     * 0.22;
+          return h;
+        }
+
+        void main() {
+          vec2 p = position.xz;
+          float h = hgt(p, uPhase);
+
+          // normal por diferencias finitas (muy barato en GPU)
+          float e = 0.9;
+          float hx = hgt(p + vec2(e, 0.0), uPhase);
+          float hz = hgt(p + vec2(0.0, e), uPhase);
+          vec3 n = normalize(vec3(h - hx, e, h - hz));
+
+          vec3 disp = vec3(p.x, h, p.y);
+          vec4 mv = modelViewMatrix * vec4(disp, 1.0);
+
+          vH      = h;
+          vWorld  = disp;
+          vNormal = n;
+          vDist   = -mv.z;
+
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: /* glsl */`
+        precision highp float;
+
+        uniform vec3 uGreen;
+        uniform vec3 uBlue;
+        uniform vec3 uFog;
+        varying float vH;
+        varying vec3  vWorld;
+        varying vec3  vNormal;
+        varying float vDist;
+
+        // rejilla fina a partir de la posición de mundo
+        float lines(vec2 p, float s, float w) {
+          vec2 g = abs(fract(p / s + 0.5) - 0.5);
+          vec2 l = smoothstep(w, 0.0, g);
+          return clamp(max(l.x, l.y), 0.0, 1.0);
+        }
+
+        void main() {
+          vec3 n = normalize(vNormal);
+          float dif = clamp(dot(n, normalize(vec3(0.42, 0.86, 0.28))), 0.0, 1.0);
+
+          // base: del verde profundo al verde medio según la altura
+          vec3 col = mix(vec3(0.004, 0.018, 0.012), vec3(0.0, 0.13, 0.055), smoothstep(-7.0, 8.0, vH));
+          col += uGreen * pow(dif, 2.1) * 0.17;
+
+          // curvas de nivel tipo carta topográfica (líneas finas y brillantes)
+          float bandas = abs(fract(vH * 0.30) - 0.5) * 2.0;
+          col += uGreen * smoothstep(0.82, 1.0, bandas) * 0.45;
+
+          // rejilla topográfica
+          float g = lines(vWorld.xz, 5.0, 0.012);
+          col += uBlue * g * 0.10;
+
+          // cresta iluminada
+          col += vec3(0.70, 1.0, 0.86) * pow(smoothstep(9.0, 12.0, vH), 2.0) * 0.55;
+
+          // niebla atmosférica
+          float fog = 1.0 - exp(-vDist * 0.0090);
+          col = mix(col, uFog, clamp(fog, 0.0, 1.0));
+
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `
+    });
+
+    const terrain = new THREE.Mesh(geo, mat);
+    scene.add(terrain);
+    scene.add(LAB.stars(700, 320, 0x9dffc0, 1.2));
+
+    // balizas luminosas que marcan las cimas más altas
+    const beacons = [];
+    const rand = LAB.rng(555);
+    for (let i = 0; i < 14; i++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: LAB.glowTexture('rgba(0,255,65,0.9)', 'rgba(0,255,65,0)', 96),
+        transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5
+      }));
+      s.position.set((rand() - 0.5) * 110, 11.0 + rand() * 5, (rand() - 0.5) * 110);
+      s.scale.setScalar(5 + rand() * 5);
+      scene.add(s);
+      beacons.push({ s, ph: rand() * Math.PI * 2 });
+    }
+
+    const target = new THREE.Vector3();
+
+    ctx.report({
+      'vértices': (geo.attributes.position.count).toLocaleString('es-CO'),
+      'triángulos': (SEG * SEG * 2).toLocaleString('es-CO')
+    });
+
+    return {
+      update(t) {
+        const u = t / PERIOD;
+        mat.uniforms.uPhase.value = u * Math.PI * 2;
+
+        // sobrevuelo: elipse cerrada + mirada adelantada (100 % periódico)
+        const a = u * Math.PI * 2;
+        const R = 52;
+        camera.position.set(Math.cos(a) * R, 13.5 + Math.sin(a * 2) * 4.8, Math.sin(a) * R * 0.78);
+        const la = a + 0.42;
+        target.set(Math.cos(la) * R * 0.30, 1.0, Math.sin(la) * R * 0.26);
+        camera.lookAt(target);
+
+        beacons.forEach(b => {
+          b.s.material.opacity = 0.28 + 0.34 * (0.5 + 0.5 * Math.sin(u * Math.PI * 2 * 3 + b.ph));
+        });
+      }
+    };
+  }
+});
+</script>
+</body>
+</html>

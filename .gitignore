@@ -1,0 +1,9 @@
+# temporales del pipeline de captura
+tools/frames/
+tools/out/
+tools/*.tmp
+
+# sistema
+Thumbs.db
+desktop.ini
+.DS_Store

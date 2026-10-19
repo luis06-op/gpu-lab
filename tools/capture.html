@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>GPU LAB · captura</title>
+  <style>
+    html, body { margin: 0; background: #040706; color: #9dffc0;
+                 font: 12px Consolas, "Courier New", monospace; }
+    iframe { display: block; border: 0; border-bottom: 1px solid rgba(0,255,65,.3); }
+    #log { padding: 12px 14px; line-height: 1.8; }
+    #log b { color: #00ff41; }
+  </style>
+</head>
+<body>
+<!-- =====================================================================
+     Arnés de captura determinista.
+     Abre una demo en un iframe, le pide fotograma por fotograma y sube
+     cada PNG a save.php. Sirve para generar los GIF del README.
+
+     Uso:  tools/capture.html?demo=02-galaxia-particulas&n=40&w=1000&h=420
+     ===================================================================== -->
+<iframe id="f"></iframe>
+<div id="log">esperando a la demo…</div>
+
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const demo = q.get('demo') || '01-arbol-neon';
+  const W = parseInt(q.get('w') || '1000', 10);
+  const H = parseInt(q.get('h') || '420', 10);
+  const N = parseInt(q.get('n') || '40', 10);
+
+  const frame = document.getElementById('f');
+  const log = document.getElementById('log');
+  frame.width = W;
+  frame.height = H;
+
+  const pad = n => String(n).padStart(3, '0');
+  let started = false;
+
+  function say(html) { log.innerHTML = html; }
+
+  function ask(i) {
+    say('capturando <b>' + demo + '</b> · fotograma ' + (i + 1) + ' / ' + N);
+    frame.contentWindow.postMessage({ lab: 'render', frame: i }, '*');
+  }
+
+  async function save(i, dataUrl) {
+    const res = await fetch('save.php?name=' + demo + '_' + pad(i) + '.png', {
+      method: 'POST',
+      body: dataUrl
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.text();
+  }
+
+  window.addEventListener('message', async ev => {
+    const d = ev.data || {};
+    if (d.lab === 'ready' && !started) {
+      started = true;
+      ask(0);
+      return;
+    }
+    if (d.lab === 'frame') {
+      try {
+        await save(d.frame, d.dataUrl);
+      } catch (e) {
+        say('error guardando el fotograma ' + d.frame + ': ' + e.message);
+        return;
+      }
+      if (d.frame + 1 < N) {
+        ask(d.frame + 1);
+      } else {
+        say('listo · <b>' + N + '</b> fotogramas de <b>' + demo + '</b> en tools/frames/');
+        document.title = 'FRAMES DONE ' + N;
+      }
+    }
+  });
+
+  frame.src = '../demos/' + demo + '/index.html?embed=1&w=' + W + '&h=' + H + '&n=' + N;
+})();
+</script>
+</body>
+</html>

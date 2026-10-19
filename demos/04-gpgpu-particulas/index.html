@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 · GPGPU partículas — GPU LAB</title>
+<link rel="stylesheet" href="../../assets/css/lab.css">
+</head>
+<body class="demo">
+<canvas id="view"></canvas>
+
+<div class="overlay">
+  <div class="tag">
+    <div class="num">DEMO 04 · CÓMPUTO EN GPU</div>
+    <h1>Partículas GPGPU</h1>
+    <p><b>65 536 partículas</b> simuladas dentro de la GPU. Cada fotograma se escriben
+       las nuevas posiciones y velocidades en <b>texturas flotantes</b> (ping-pong) y
+       luego se dibujan leyéndolas desde el vertex shader. El procesador no toca
+       ni un solo dato de la simulación.</p>
+  </div>
+  <div class="hud" id="hud"></div>
+  <div class="foot">
+    <span class="pill">simulación ping-pong 256×256</span>
+    <a href="../../index.html">← índice</a>
+  </div>
+</div>
+
+<script src="../../vendor/three.min.js"></script>
+<script src="../../assets/js/lab-core.js"></script>
+<script>
+/* =====================================================================
+   04 · PARTÍCULAS GPGPU
+   Estados en texturas de punto flotante:
+     · pos[0] pos[1]  -> ping-pong de posiciones
+     · vel[0] vel[1]  -> ping-pong de velocidades
+   Cada paso integra fuerzas (cascarón, remolino, turbulencia senoidal)
+   en un shader de fragmento. El dibujo lee la textura desde el vertex
+   shader con vertex texture fetch.
+   ===================================================================== */
+LAB.boot({
+  name: '04-gpgpu-particulas',
+  period: 30,
+  frames: 48,
+  fov: 46,
+  camera: { pos: [0.6, 1.7, 5.4], target: [0, 0, 0] },
+  orbitOpts: { minRadius: 2.2, maxRadius: 26, maxPolar: 2.6 },
+  stats: { partículas: '65 536', texturas: '4 × 256²' },
+
+  build(ctx) {
+    const { scene, renderer } = ctx;
+    const SIZE = 256;
+    const COUNT = SIZE * SIZE;
+    const STEP = 1 / 60;
+
+    /* ------------------------------------------------ utilidades de simulación */
+    const simScene = new THREE.Scene();
+    const simCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const simQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), null);
+    simQuad.frustumCulled = false;
+    simScene.add(simQuad);
+
+    const rtOpts = {
+      type: THREE.FloatType,
+      format: THREE.RGBAFormat,
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+      wrapS: THREE.ClampToEdgeWrapping,
+      wrapT: THREE.ClampToEdgeWrapping,
+      depthBuffer: false,
+      stencilBuffer: false
+    };
+    const mkRT = () => new THREE.WebGLRenderTarget(SIZE, SIZE, rtOpts);
+    const pos = [mkRT(), mkRT()];
+    const vel = [mkRT(), mkRT()];
+
+    const QUAD_VS = /* glsl */`
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+    `;
+    const HELPERS = /* glsl */`
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+      vec3  hash3(vec2 p) {
+        return vec3(hash(p), hash(p + 13.37), hash(p + 71.71));
+      }
+      float noise(vec3 p) {
+        return sin(p.x * 3.1 + p.y * 1.7) * cos(p.z * 2.9 - p.x * 1.3);
+      }
+    `;
+
+    const initPosMat = new THREE.ShaderMaterial({
+      uniforms: { uSeed: { value: 3.14 } },
+      vertexShader: QUAD_VS,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        varying vec2 vUv;
+        uniform float uSeed;
+        ${HELPERS}
+        void main() {
+          vec3 n = hash3(vUv * 57.0 + uSeed) - 0.5;
+          vec3 d = length(n) > 0.001 ? normalize(n) : vec3(0.0, 1.0, 0.0);
+          float r = 0.85 + hash(vUv * 31.0 + uSeed) * 0.55;
+          gl_FragColor = vec4(d * r, 1.0);
+        }      `
+    });
+
+    const initVelMat = new THREE.ShaderMaterial({
+      uniforms: { tPos: { value: null }, uSeed: { value: 7.7 } },
+      vertexShader: QUAD_VS,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        varying vec2 vUv;
+        uniform sampler2D tPos;
+        uniform float uSeed;
+        ${HELPERS}
+        void main() {
+          vec3 p = texture2D(tPos, vUv).xyz;
+          vec3 e = normalize(length(p) > 0.001 ? p : vec3(0.0, 1.0, 0.0));
+          vec3 tangente = cross(e, vec3(0.0, 1.0, 0.0));
+          if (length(tangente) < 0.001) tangente = vec3(1.0, 0.0, 0.0);
+          vec3 v = normalize(tangente + (hash3(vUv * 91.0 + uSeed) - 0.5) * 0.35) * 0.55;
+          gl_FragColor = vec4(v, 1.0);
+        }
+      `
+    });
+
+    const velMat = new THREE.ShaderMaterial({
+      uniforms: {
+        tPos: { value: null }, tVel: { value: null },
+        uDt: { value: STEP }, uTime: { value: 0 }
+      },
+      vertexShader: QUAD_VS,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        varying vec2 vUv;
+        uniform sampler2D tPos;
+        uniform sampler2D tVel;
+        uniform float uDt;
+        uniform float uTime;
+        ${HELPERS}
+
+        void main() {
+          vec3 p = texture2D(tPos, vUv).xyz;
+          vec3 v = texture2D(tVel, vUv).xyz;
+
+          float r = max(length(p), 0.001);
+
+          // 1) muelle hacia un cascarón esférico
+          vec3 a = -normalize(p) * (r - 1.0) * 3.4;
+
+          // 2) remolino (vorticidad alrededor del eje Y)
+          a += cross(vec3(0.0, 1.0, 0.0), p) * (0.9 / (0.25 + r));
+
+          // 3) turbulencia senoidal animada
+          float t = uTime;
+          a += vec3(
+            sin(p.y * 3.1 + t * 1.3) * cos(p.z * 2.7 - t * 0.9),
+            sin(p.z * 3.3 + t * 1.1) * cos(p.x * 2.9 + t * 0.7),
+            sin(p.x * 3.7 + t * 0.8) * cos(p.y * 3.1 - t * 1.2)
+          ) * 1.15;
+
+          v = v * 0.968 + a * uDt;
+          float sp = length(v);
+          if (sp > 2.4) v = v / sp * 2.4;
+
+          gl_FragColor = vec4(v, 1.0);
+        }
+      `
+    });
+
+    const posMat = new THREE.ShaderMaterial({
+      uniforms: { tPos: { value: null }, tVel: { value: null }, uDt: { value: STEP } },
+      vertexShader: QUAD_VS,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        varying vec2 vUv;
+        uniform sampler2D tPos;
+        uniform sampler2D tVel;
+        uniform float uDt;
+        void main() {
+          vec3 p = texture2D(tPos, vUv).xyz;
+          vec3 v = texture2D(tVel, vUv).xyz;
+          gl_FragColor = vec4(p + v * uDt, 1.0);
+        }
+      `
+    });
+
+    let cur = 0;
+
+    function blit(material, target) {
+      simQuad.material = material;
+      renderer.setRenderTarget(target);
+      renderer.render(simScene, simCam);
+      renderer.setRenderTarget(null);
+    }
+
+    function reset() {
+      blit(initPosMat, pos[0]);
+      blit(initPosMat, pos[1]);
+      initVelMat.uniforms.tPos.value = pos[0].texture;
+      blit(initVelMat, vel[0]);
+      initVelMat.uniforms.tPos.value = pos[1].texture;
+      blit(initVelMat, vel[1]);
+      cur = 0;
+    }
+
+    function stepOnce(dt, time) {
+      velMat.uniforms.tPos.value = pos[cur].texture;
+      velMat.uniforms.tVel.value = vel[cur].texture;
+      velMat.uniforms.uDt.value = dt;
+      velMat.uniforms.uTime.value = time;
+      blit(velMat, vel[1 - cur]);
+
+      posMat.uniforms.tPos.value = pos[cur].texture;
+      posMat.uniforms.tVel.value = vel[1 - cur].texture;
+      posMat.uniforms.uDt.value = dt;
+      blit(posMat, pos[1 - cur]);
+
+      cur = 1 - cur;
+    }
+
+    reset();
+    for (let i = 0; i < 90; i++) stepOnce(STEP, i * STEP);   // calentamiento
+
+    /* ------------------------------------------------ dibujo de las partículas */
+    const ref = new Float32Array(COUNT * 2);
+    for (let i = 0; i < COUNT; i++) {
+      ref[i * 2] = ((i % SIZE) + 0.5) / SIZE;
+      ref[i * 2 + 1] = (Math.floor(i / SIZE) + 0.5) / SIZE;
+    }
+    const geo = new THREE.BufferGeometry();
+    const dummy = new Float32Array(COUNT * 3);   // solo para el culling
+    geo.setAttribute('position', new THREE.BufferAttribute(dummy, 3));
+    geo.setAttribute('aRef', new THREE.BufferAttribute(ref, 2));
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 3);
+
+    const draw = new THREE.ShaderMaterial({
+      uniforms: {
+        tPos: { value: pos[0].texture },
+        tVel: { value: vel[0].texture },
+        uPixelRatio: { value: renderer.getPixelRatio() },
+        uSize: { value: 20 }
+      },
+      vertexShader: /* glsl */`
+        attribute vec2 aRef;
+        uniform sampler2D tPos;
+        uniform sampler2D tVel;
+        uniform float uPixelRatio;
+        uniform float uSize;
+        varying vec3 vCol;
+
+        void main() {
+          vec3 p = texture2D(tPos, aRef).xyz;
+          vec3 v = texture2D(tVel, aRef).xyz;
+          float sp = length(v);
+
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          gl_Position = projectionMatrix * mv;
+          gl_PointSize = uSize * uPixelRatio * (1.0 / max(-mv.z, 0.001)) * (0.75 + sp * 0.55);
+
+          vec3 cool = vec3(0.00, 0.95, 0.35);
+          vec3 hot  = vec3(0.22, 0.74, 0.97);
+          vCol = mix(cool, hot, clamp(sp * 0.62, 0.0, 1.0));
+          vCol = mix(vCol, vec3(1.0), clamp(sp * 1.1 - 0.75, 0.0, 0.55));
+        }
+      `,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        varying vec3 vCol;
+        void main() {
+          vec2 d = gl_PointCoord - 0.5;
+          float r = length(d);
+          if (r > 0.5) discard;
+          float a = smoothstep(0.5, 0.0, r);
+          gl_FragColor = vec4(vCol * (a * 0.9 + 0.1), a * 0.85);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    const points = new THREE.Points(geo, draw);
+    points.frustumCulled = false;
+    scene.add(points);
+
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: LAB.glowTexture('rgba(0,255,65,0.5)', 'rgba(0,255,65,0)', 128),
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.35
+    }));
+    halo.scale.set(6, 6, 1);
+    scene.add(halo);
+    scene.add(LAB.stars(600, 160, 0x9dffc0, 0.7));
+
+    ctx.report({ 'partículas': COUNT.toLocaleString('es-CO'), texturas: '4 × ' + SIZE + '²' });
+
+    /* ------------------------------------------------ bucle */
+    let acc = 0, simTime = 90 * STEP, last = -1;
+    return {
+      update(t, dt) {
+        if (t <= 0.0001 || t < last) {          // nuevo ciclo: reiniciar simulación
+          reset();
+          for (let i = 0; i < 90; i++) stepOnce(STEP, i * STEP);
+          simTime = 90 * STEP;
+          acc = 0;
+        }
+        last = t;
+
+        acc = Math.min(acc + dt, 0.8);
+        let guard = 0;
+        while (acc >= STEP && guard++ < 52) {
+          stepOnce(STEP, simTime);
+          simTime += STEP;
+          acc -= STEP;
+        }
+
+        draw.uniforms.tPos.value = pos[cur].texture;
+        draw.uniforms.tVel.value = vel[cur].texture;
+        halo.material.opacity = 0.28 + Math.sin(simTime * 0.8) * 0.08;
+      }
+    };
+  }
+});
+</script>
+</body>
+</html>

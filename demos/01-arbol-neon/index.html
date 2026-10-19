@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 · Árbol neón — GPU LAB</title>
+<link rel="stylesheet" href="../../assets/css/lab.css">
+</head>
+<body class="demo">
+<canvas id="view"></canvas>
+
+<div class="overlay">
+  <div class="tag">
+    <div class="num">DEMO 01 · NUBE DE PUNTOS</div>
+    <h1>Árbol neón</h1>
+    <p>Árbol generado por <b>recursión</b> y dibujado como nube de decenas de miles de
+       puntos con mezcla aditiva. El trazado y el <b>blending</b> ocurren en la
+       tarjeta gráfica a 60 fotogramas por segundo.</p>
+  </div>
+  <div class="hud" id="hud"></div>
+  <div class="foot">
+    <span class="pill">arrastra para orbitar</span>
+    <span class="pill">rueda para acercar</span>
+    <a href="../../index.html">← índice</a>
+  </div>
+</div>
+
+<script src="../../vendor/three.min.js"></script>
+<script src="../../assets/js/lab-core.js"></script>
+<script>
+/* =====================================================================
+   01 · ÁRBOL NEÓN
+   Geometría: líneas (ramas) + puntos (follaje) generados por recursión.
+   Animación: giro continuo, luciérnagas y anillos de radar expansivos.
+   ===================================================================== */
+LAB.boot({
+  name: '01-arbol-neon',
+  period: 18,
+  frames: 44,
+  fov: 48,
+  camera: { pos: [0, 5.8, 18.5], target: [0, 2.5, 0] },
+  orbitOpts: { minRadius: 8, maxRadius: 70, maxPolar: 1.55 },
+  stats: { puntos: '', ramas: '' },
+
+  build(ctx) {
+    const { scene, camera } = ctx;
+    const TAU = LAB.TAU;
+    const rand = LAB.rng(20261019);
+
+    const group = new THREE.Group();
+    scene.add(group);
+
+    /* ---------------------------------------------- ramas + follaje */
+    const linePos = [], lineCol = [], pts = [];
+    const cA = new THREE.Color(LAB.PAL.green);
+    const cB = new THREE.Color(0x9dffbe);
+
+    function branch(start, dir, len, depth, sway) {
+      const end = start.clone().addScaledVector(dir, len);
+      linePos.push(start.x, start.y, start.z, end.x, end.y, end.z);
+      const cc = cA.clone().lerp(cB, 1 - depth / 5);
+      lineCol.push(cc.r, cc.g, cc.b, cc.r, cc.g, cc.b);
+
+      const steps = Math.max(2, Math.floor(len * 6));
+      for (let i = 1; i < steps; i++) {
+        const p = start.clone().lerp(end, i / steps);
+        p.x += (rand() - 0.5) * 0.09;
+        p.y += (rand() - 0.5) * 0.09;
+        p.z += (rand() - 0.5) * 0.09;
+        pts.push(p.x, p.y, p.z);
+      }
+
+      if (depth === 0) {
+        for (let i = 0; i < 26; i++) {
+          const a = rand() * TAU, r = Math.pow(rand(), 0.6);
+          pts.push(
+            end.x + Math.cos(a) * r * 0.42,
+            end.y + (rand() - 0.42) * 0.5,
+            end.z + Math.sin(a) * r * 0.42
+          );
+        }
+        return;
+      }
+
+      const kids = depth >= 4 ? 2 : (rand() < 0.55 ? 2 : 3);
+      for (let k = 0; k < kids; k++) {
+        const az = (k / kids) * TAU + rand() * 1.2;
+        const spread = 0.34 + rand() * 0.38 + sway;
+        const axis = new THREE.Vector3(Math.cos(az), 0, Math.sin(az)).cross(dir).normalize();
+        if (axis.lengthSq() < 0.001) axis.set(1, 0, 0);
+        const nd = dir.clone().applyAxisAngle(axis, spread).normalize();
+        branch(end, nd, len * (0.66 + rand() * 0.1), depth - 1, sway * 0.55);
+      }
+      if (depth >= 3 && rand() < 0.55) {
+        const axis = new THREE.Vector3(Math.cos(rand() * TAU), 0, Math.sin(rand() * TAU))
+          .cross(dir).normalize();
+        const nd = dir.clone().applyAxisAngle(axis, 0.16).normalize();
+        branch(end, nd, len * 0.72, depth - 1, sway * 0.55);
+      }
+    }
+
+    branch(new THREE.Vector3(0, -3.35, 0), new THREE.Vector3(0, 1, 0), 2.15, 6, 0);
+
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
+    lg.setAttribute('color', new THREE.Float32BufferAttribute(lineCol, 3));
+    group.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 0.5,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    })));
+
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    group.add(new THREE.Points(pg, new THREE.PointsMaterial({
+      color: 0x8dffb0, size: 0.045, transparent: true, opacity: 0.62,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+    })));
+
+    /* ---------------------------------------------- luciérnagas */
+    const FN = 420;
+    const fPos = new Float32Array(FN * 3);
+    const fCol = new Float32Array(FN * 3);
+    const fSeed = [];
+    const colGreen = new THREE.Color(LAB.PAL.green);
+    const colBlue = new THREE.Color(LAB.PAL.blue);
+    for (let i = 0; i < FN; i++) {
+      fSeed.push({
+        x: (rand() - 0.5) * 30,
+        y: rand() * 11 - 3,
+        z: (rand() - 0.5) * 16,
+        p1: rand() * TAU, p2: rand() * TAU,
+        amp: 0.25 + rand() * 0.8,
+        spd: 1 + Math.floor(rand() * 2)
+      });
+      const c = rand() < 0.14 ? colBlue : colGreen;
+      fCol[i * 3] = c.r; fCol[i * 3 + 1] = c.g; fCol[i * 3 + 2] = c.b;
+    }
+    const fGeo = new THREE.BufferGeometry();
+    fGeo.setAttribute('position', new THREE.BufferAttribute(fPos, 3));
+    fGeo.setAttribute('color', new THREE.BufferAttribute(fCol, 3));
+    scene.add(new THREE.Points(fGeo, new THREE.PointsMaterial({
+      size: 0.07, vertexColors: true, transparent: true, opacity: 0.72,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    })));
+
+    /* ---------------------------------------------- suelo, estrellas y radar */
+    const floor = LAB.grid(90, 45, LAB.PAL.green, 0.14);
+    floor.position.y = -3.6;
+    scene.add(floor, LAB.stars(900, 240));
+
+    const ringGeo = new THREE.RingGeometry(0.96, 1.0, 72);
+    const rings = [];
+    for (let i = 0; i < 3; i++) {
+      const r = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+        color: LAB.PAL.green, transparent: true, opacity: 0.4,
+        side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false
+      }));
+      r.rotation.x = -Math.PI / 2;
+      r.position.y = -3.58;
+      r.userData.phase = i / 3;
+      scene.add(r);
+      rings.push(r);
+    }
+
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: LAB.glowTexture('rgba(0,255,65,0.85)', 'rgba(0,255,65,0)', 128),
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55
+    }));
+    glow.scale.set(26, 26, 1);
+    glow.position.set(0, 1.4, -4);
+    scene.add(glow);
+
+    ctx.report({
+      puntos: (pts.length / 3).toLocaleString('es-CO'),
+      ramas: (linePos.length / 6).toLocaleString('es-CO')
+    });
+
+    /* ---------------------------------------------- animación (bucle perfecto) */
+    return {
+      update(t) {
+        group.rotation.y = t / 18 * TAU;
+        group.rotation.z = Math.sin(t) * 0.015;
+
+        for (let i = 0; i < FN; i++) {
+          const s = fSeed[i];
+          fPos[i * 3] = s.x + Math.sin(t * s.spd + s.p1) * s.amp;
+          fPos[i * 3 + 1] = s.y + Math.cos(t * s.spd + s.p2) * s.amp * 1.4;
+          fPos[i * 3 + 2] = s.z + Math.sin(t * 2 + s.p1) * 0.5;
+        }
+        fGeo.attributes.position.needsUpdate = true;
+
+        rings.forEach(r => {
+          const u = ((t / 18) + r.userData.phase) % 1;
+          const s = 1 + u * 7;
+          r.scale.set(s, s, 1);
+          r.material.opacity = 0.42 * (1 - u);
+        });
+
+        glow.material.opacity = 0.45 + Math.sin(t * 2) * 0.12;
+      }
+    };
+  }
+});
+</script>
+</body>
+</html>

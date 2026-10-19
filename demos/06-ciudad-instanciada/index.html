@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 · Ciudad instanciada — GPU LAB</title>
+<link rel="stylesheet" href="../../assets/css/lab.css">
+</head>
+<body class="demo">
+<canvas id="view"></canvas>
+
+<div class="overlay">
+  <div class="tag">
+    <div class="num">DEMO 06 · INSTANCIAS + SHADER</div>
+    <h1>Ciudad instanciada</h1>
+    <p><b>8 100 edificios</b> dibujados con <b>una sola llamada</b> de dibujo
+       (<i>instanced rendering</i>): la misma caja repetida con matrices y atributos
+       por instancia. Las ventanas, el degradado y la onda de energía se calculan
+       enteramente en la GPU.</p>
+  </div>
+  <div class="hud" id="hud"></div>
+  <div class="foot">
+    <span class="pill">arrastra para orbitar</span>
+    <span class="pill">1 draw call</span>
+    <a href="../../index.html">← índice</a>
+  </div>
+</div>
+
+<script src="../../vendor/three.min.js"></script>
+<script src="../../assets/js/lab-core.js"></script>
+<script>
+/* =====================================================================
+   06 · CIUDAD INSTANCIADA
+   Una caja, 8100 instancias. Cada instancia aporta altura, semilla y
+   distancia al centro; el fragment shader enciende las ventanas y hace
+   viajar una onda de energía desde el centro de la ciudad.
+   ===================================================================== */
+const PERIOD = 20;
+
+LAB.boot({
+  name: '06-ciudad-instanciada',
+  period: PERIOD,
+  frames: 48,
+  fov: 52,
+  near: 0.5,
+  far: 600,
+  camera: { pos: [64, 34, 64], target: [0, 6, 0] },
+  orbitOpts: { minRadius: 25, maxRadius: 190, maxPolar: 1.45 },
+  stats: { instancias: '8 100', 'draw calls': '1' },
+
+  build(ctx) {
+    const { scene, renderer, camera } = ctx;
+
+    const N = 90;                       // 90 × 90 = 8100
+    const COUNT = N * N;
+    const SPACING = 2.45;
+    const HALF = (N - 1) * SPACING * 0.5;
+
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    box.translate(0, 0.5, 0);           // la caja crece desde el suelo
+
+    const mesh = new THREE.InstancedMesh(box, null, COUNT);
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+
+    const aHeight = new Float32Array(COUNT);
+    const aSeed = new Float32Array(COUNT);
+    const aDist = new Float32Array(COUNT);
+
+    const rand = LAB.rng(9090);
+    const m = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scl = new THREE.Vector3();
+
+    // campo de alturas: varias "manchas" de rascacielos
+    const downtowns = [];
+    for (let i = 0; i < 5; i++) {
+      downtowns.push({
+        x: (rand() - 0.5) * HALF * 1.5,
+        z: (rand() - 0.5) * HALF * 1.5,
+        r: 12 + rand() * 26,
+        h: 44 + rand() * 74
+      });
+    }
+
+    let k = 0;
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++, k++) {
+        const x = -HALF + i * SPACING;
+        const z = -HALF + j * SPACING;
+        const r = Math.hypot(x, z);
+
+        let h = 1.6 + rand() * 6.5;
+        for (const d of downtowns) {
+          const dd = Math.hypot(x - d.x, z - d.z);
+          h += Math.max(0, 1 - dd / d.r) ** 2 * d.h;
+        }
+        // anillo exterior bajo
+        h *= 1 - Math.min(0.82, Math.pow(r / (HALF * 1.05), 3));
+        h = Math.max(1.0, h);
+
+        const alto = rand() < 0.035 ? h * 1.55 : h;   // torres sueltas
+        const ancho = SPACING * (0.52 + rand() * 0.34);
+
+        pos.set(x, 0, z);
+        scl.set(ancho, alto, ancho);
+        m.compose(pos, quat, scl);
+        mesh.setMatrixAt(k, m);
+
+        aHeight[k] = alto;
+        aSeed[k] = rand();
+        aDist[k] = r;
+      }
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+
+    box.setAttribute('aHeight', new THREE.InstancedBufferAttribute(aHeight, 1));
+    box.setAttribute('aSeed', new THREE.InstancedBufferAttribute(aSeed, 1));
+    box.setAttribute('aDist', new THREE.InstancedBufferAttribute(aDist, 1));
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uPhase: { value: 0 },
+        uGreen: { value: new THREE.Color(0x00ff41) },
+        uBlue: { value: new THREE.Color(0x38bdf8) },
+        uFog: { value: new THREE.Color(0x03110a) },
+        uMaxDist: { value: HALF * 1.4 }
+      },
+      vertexShader: /* glsl */`
+        precision highp float;
+
+        attribute float aHeight;
+        attribute float aSeed;
+        attribute float aDist;
+
+        varying vec3  vLocal;
+        varying vec2  vUv;
+        varying float vHeight;
+        varying float vSeed;
+        varying float vDist;
+        varying vec3  vNormal;
+
+        void main() {
+          vLocal  = position;
+          vUv     = uv;
+          vHeight = aHeight;
+          vSeed   = aSeed;
+
+          vec4 wp = instanceMatrix * vec4(position, 1.0);
+          vec4 mv = modelViewMatrix * wp;
+          vDist   = length(wp.xyz);
+          vNormal = normalize(mat3(instanceMatrix) * normal);
+
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: /* glsl */`
+        precision highp float;
+
+        uniform float uPhase;
+        uniform vec3  uGreen;
+        uniform vec3  uBlue;
+        uniform vec3  uFog;
+        uniform float uMaxDist;
+
+        varying vec3  vLocal;
+        varying vec2  vUv;
+        varying float vHeight;
+        varying float vSeed;
+        varying float vDist;
+        varying vec3  vNormal;
+
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+
+        void main() {
+          /* ---------- ventanas: rejilla procedural por instancia ---------- */
+          vec2 cell = floor(vec2(vUv.x * 5.0, vUv.y * max(2.0, vHeight * 0.85)));
+          float h1 = hash(cell + vSeed * 91.0);
+          float h2 = hash(cell.yx * 1.7 + vSeed * 13.0);
+
+          float lit = step(0.58, h1);
+          // parpadeo periódico (múltiplos enteros de la fase => bucle perfecto)
+          float blink = 0.55 + 0.45 * sin(uPhase * 3.0 + h2 * 6.2831);
+          lit *= mix(1.0, blink, step(0.75, h2));
+
+          vec3 winCol = mix(uGreen, uBlue, step(0.93, h1));
+
+          /* ---------- cuerpo del edificio ---------- */
+          float alto = smoothstep(0.0, 1.0, vLocal.y);
+          vec3 col = mix(vec3(0.012, 0.036, 0.026), vec3(0.02, 0.09, 0.06), alto);
+
+          float lado = 1.0 - abs(vNormal.y);            // caras laterales
+          col += winCol * lit * lado * 0.85;
+
+          // borde superior iluminado
+          col += uGreen * smoothstep(0.94, 1.0, vLocal.y) * 0.5;
+
+          /* ---------- onda de energía ---------- */
+          float u = uPhase / 6.2831853;
+          float radio = u * uMaxDist;
+          float onda = exp(-pow((vDist - radio) * 0.16, 2.0)) * sin(u * 3.1415926);
+          col += uBlue * onda * (0.55 + 0.45 * sin(vHeight * 0.6));
+
+          /* ---------- ambiente y niebla ---------- */
+          col += uGreen * 0.05 * (0.4 + 0.6 * hash(vec2(vSeed, 1.0)));
+          float fog = 1.0 - exp(-max(vDist - 42.0, 0.0) * 0.011);
+          col = mix(col, uFog, clamp(fog, 0.0, 1.0));
+
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `
+    });
+
+    mesh.material = mat;
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+
+    /* ---------------------------------------------- suelo y estrellas */
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(520, 520),
+      new THREE.MeshBasicMaterial({ color: 0x04120c })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.02;
+    scene.add(ground);
+
+    const grid = LAB.grid(210, 52, LAB.PAL.green, 0.075);
+    grid.position.y = 0.02;
+    scene.add(grid);
+    scene.add(LAB.stars(900, 400, 0x9dffc0, 1.4));
+
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: LAB.glowTexture('rgba(0,255,65,0.4)', 'rgba(0,255,65,0)', 128),
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.35
+    }));
+    halo.scale.set(120, 120, 1);
+    halo.position.y = 10;
+    scene.add(halo);
+
+    ctx.report({ instancias: COUNT.toLocaleString('es-CO'), 'draw calls': '1' });
+
+    const ctl = ctx.ctl;
+
+    return {
+      update(t) {
+        const u = t / PERIOD;
+        mat.uniforms.uPhase.value = u * Math.PI * 2;
+
+        if (ctx.embed && ctl) {
+          // cámara determinista para la captura del GIF
+          ctl.set(112 + Math.sin(u * Math.PI * 2) * 14, u * Math.PI * 2, 1.02 + Math.sin(u * Math.PI * 4) * 0.06);
+        }
+        halo.material.opacity = 0.28 + 0.12 * Math.sin(u * Math.PI * 2);
+      }
+    };
+  }
+});
+</script>
+</body>
+</html>
