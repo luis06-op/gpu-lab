@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GPU LAB · animaciones y modelos 3D en tiempo real</title>
+<meta name="description" content="Ocho escenas 3D calculadas enteramente dentro de la tarjeta gráfica: partículas, raymarching, GPGPU, terreno procedural, instancing, PBR y post-proceso.">
 <link rel="stylesheet" href="assets/css/lab.css">
 </head>
 <body>
@@ -21,9 +22,20 @@
     <div class="gpu-line" id="gpu-line">detectando la tarjeta gráfica…</div>
   </header>
 
+  <section class="section" style="margin-top:34px">
+    <div style="font-family:var(--mono);font-size:11.5px;color:var(--muted);line-height:1.9">
+      <b style="color:var(--mint)">119–120 FPS</b> ·
+      <b style="color:var(--mint)">0,07 a 0,48 ms</b> de GPU por fotograma ·
+      menos del <b style="color:var(--mint)">6 %</b> del presupuesto de 8,33 ms a 120 Hz<br>
+      Ninguna animación está pre-renderizada: lo que ves son fotogramas calculados en vivo.
+      Pasa el ratón por una tarjeta para verla en movimiento, o haz clic para abrirla a pantalla completa.
+    </div>
+  </section>
+
   <section class="grid">
 
     <a class="card" href="demos/01-arbol-neon/index.html">
+      <img class="shot" src="assets/gifs/01-arbol-neon.gif" alt="Árbol neón generado por recursión" width="840" height="345" loading="lazy">
       <div class="n">DEMO 01</div>
       <h3>Árbol neón</h3>
       <p>Árbol recursivo dibujado como nube de puntos con mezcla aditiva, luciérnagas y anillos de radar.</p>
@@ -31,6 +43,7 @@
     </a>
 
     <a class="card" href="demos/02-galaxia-particulas/index.html">
+      <img class="shot" src="assets/gifs/02-galaxia-particulas.gif" alt="Galaxia de 180 000 partículas" width="840" height="345" loading="lazy">
       <div class="n">DEMO 02</div>
       <h3>Galaxia de partículas</h3>
       <p>180 000 estrellas en espiral. La rotación diferencial de los brazos se resuelve en el vertex shader.</p>
@@ -38,6 +51,7 @@
     </a>
 
     <a class="card" href="demos/03-raymarching/index.html">
+      <img class="shot" src="assets/gifs/03-raymarching.gif" alt="Raymarching de distancias firmadas" width="840" height="345" loading="lazy">
       <div class="n">DEMO 03</div>
       <h3>Raymarching SDF</h3>
       <p>Sin geometría: un único shader de fragmento recorre la escena y acumula brillo píxel a píxel.</p>
@@ -45,6 +59,7 @@
     </a>
 
     <a class="card" href="demos/04-gpgpu-particulas/index.html">
+      <img class="shot" src="assets/gifs/04-gpgpu-particulas.gif" alt="Partículas simuladas en la GPU" width="840" height="345" loading="lazy">
       <div class="n">DEMO 04</div>
       <h3>Partículas GPGPU</h3>
       <p>65 536 partículas simuladas en la GPU con ping-pong de texturas flotantes. El procesador no toca los datos.</p>
@@ -52,6 +67,7 @@
     </a>
 
     <a class="card" href="demos/05-terreno-procedural/index.html">
+      <img class="shot" src="assets/gifs/05-terreno-procedural.gif" alt="Terreno procedural en verde neón" width="840" height="345" loading="lazy">
       <div class="n">DEMO 05</div>
       <h3>Terreno procedural</h3>
       <p>Malla plana de 78 400 vértices convertida en cordillera dentro del vertex shader, con curvas de nivel.</p>
@@ -59,6 +75,7 @@
     </a>
 
     <a class="card" href="demos/06-ciudad-instanciada/index.html">
+      <img class="shot" src="assets/gifs/06-ciudad-instanciada.gif" alt="Ciudad instanciada" width="840" height="345" loading="lazy">
       <div class="n">DEMO 06</div>
       <h3>Ciudad instanciada</h3>
       <p>8 100 edificios en una sola llamada de dibujo, con ventanas, onda de energía y niebla por fragmento.</p>
@@ -66,6 +83,7 @@
     </a>
 
     <a class="card" href="demos/07-visor-modelos/index.html">
+      <img class="shot" src="assets/gifs/07-visor-modelos.gif" alt="Visor de modelos con materiales PBR" width="840" height="345" loading="lazy">
       <div class="n">DEMO 07</div>
       <h3>Visor de modelos</h3>
       <p>Materiales PBR, mapas de sombra de 2048² y entorno prefiltrado con PMREM para reflejos reales.</p>
@@ -73,6 +91,7 @@
     </a>
 
     <a class="card" href="demos/08-postproceso-bloom/index.html">
+      <img class="shot" src="assets/gifs/08-postproceso-bloom.gif" alt="Bloom y post-proceso" width="840" height="345" loading="lazy">
       <div class="n">DEMO 08</div>
       <h3>Bloom y post-proceso</h3>
       <p>Seis pases propios: brillo, dos desenfoques gaussianos separables y compuesto con aberración y grano.</p>
@@ -81,31 +100,116 @@
 
   </section>
 
-  <div class="foot-note">
-    <b>Medido en este equipo</b> · AMD Radeon RX 9060 XT · 120 Hz · todas las demos a 119–120 FPS
-    con un coste de GPU de <b>0,07 a 0,48 ms</b> por fotograma (menos del 6 % de los 8,33 ms disponibles).<br>
-    <b>Motor compartido</b> · <code>assets/js/lab-core.js</code> ·
-    <b>Arnés de captura</b> · <code>tools/capture.html</code> ·
-    <b>Informe completo</b> · <code>docs/RENDIMIENTO.md</code>
+  <!-- ================================================== RENDIMIENTO ==== -->
+  <section class="section" id="rendimiento">
+    <h2>Rendimiento medido</h2>
+    <p>
+      Los milisegundos de GPU <b>no son una estimación</b>: se leen con la extensión
+      <b>EXT_disjoint_timer_query_webgl2</b>, que devuelve el tiempo que la tarjeta gráfica dedica
+      de verdad a cada fotograma. Cada consulta abarca una llamada de render completa, incluidos
+      los pases internos (ping-pong de la simulación, sombras y los seis pases del bloom).
+      Cifras tomadas a <b>949 × 886 píxeles y 120 Hz</b>.
+    </p>
+
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>#</th><th>Demo</th><th>GPU / fotograma</th><th>Draw calls</th><th>Geometría</th><th>FPS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>01</td><td>Árbol neón</td><td class="g">0,07 ms</td><td>9</td><td>5 928 pts · 434 tri</td><td>120</td></tr>
+          <tr><td>02</td><td>Galaxia de partículas</td><td class="g">0,20 ms</td><td>3</td><td>180 000 pts</td><td>120</td></tr>
+          <tr><td>03</td><td>Raymarching SDF</td><td class="g">0,48 ms</td><td>1</td><td>2 tri (todo en el shader)</td><td>120</td></tr>
+          <tr><td>04</td><td>Partículas GPGPU</td><td class="g">0,08–0,19 ms</td><td>3</td><td>66 136 pts</td><td>120</td></tr>
+          <tr><td>05</td><td>Terreno procedural</td><td class="g">0,13–0,21 ms</td><td>11</td><td>155 700 tri</td><td>119</td></tr>
+          <tr><td>06</td><td>Ciudad instanciada</td><td class="g">0,24–0,33 ms</td><td>5 (1 para la ciudad)</td><td>97 204 tri</td><td>120</td></tr>
+          <tr><td>07</td><td>Visor de modelos</td><td class="g">0,28 ms</td><td>5</td><td>20 072 tri</td><td>120</td></tr>
+          <tr><td>08</td><td>Bloom y post-proceso</td><td class="g">0,18 ms</td><td>1 + 6 pases</td><td>2 tri</td><td>120</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="budget">
+      <div class="line">
+        <span class="label">presupuesto a 120 Hz</span>
+        <span class="track"><span class="fill" style="width:100%"></span></span>
+        <span class="val">8,33 ms</span>
+      </div>
+      <div class="line">
+        <span class="label">uso de GPU (peor caso)</span>
+        <span class="track"><span class="fill" style="width:5.8%"></span></span>
+        <span class="val">0,48 ms</span>
+      </div>
+      <div class="line" style="margin-top:12px;color:var(--blue)">
+        AMD Radeon RX 9060 XT · WebGL 2.0 vía ANGLE / Direct3D 11 · 1920 × 1080 @ 120 Hz
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================== INFORMES ======= -->
+  <section class="section" id="informes">
+    <h2>Informes</h2>
+    <p>Los dos documentos técnicos del proyecto, con las mediciones completas y el pipeline de captura.</p>
+
+    <div class="docs">
+      <a class="doc" href="https://github.com/luis06-op/gpu-lab/blob/main/docs/RENDIMIENTO.md">
+        <h3>📊 Uso de la GPU</h3>
+        <p>
+          Cómo se mide con el cronómetro de la tarjeta, capacidades que aprovechan las demos,
+          presupuesto de fotograma, medición por demo, trabajo derivado por segundo y
+          uso real a nivel del sistema operativo.
+        </p>
+        <span class="go">docs/RENDIMIENTO.md</span>
+      </a>
+
+      <a class="doc" href="https://github.com/luis06-op/gpu-lab/blob/main/docs/PIPELINE.md">
+        <h3>🎞 Pipeline de captura de los GIF</h3>
+        <p>
+          Cómo se renderizan los GIF fotograma a fotograma dentro de la GPU: protocolo entre el
+          arnés y la demo, bucle perfecto por índice de fotograma y ajustes de codificación
+          de FFmpeg justificados con cifras.
+        </p>
+        <span class="go">docs/PIPELINE.md</span>
+      </a>
+
+      <a class="doc" href="https://github.com/luis06-op/gpu-lab">
+        <h3>💻 Código fuente</h3>
+        <p>
+          Motor compartido, ocho demos comentadas en español, arnés de captura dinámico y
+          licencia MIT. Todo el proyecto vive en GitHub.
+        </p>
+        <span class="go">github.com/luis06-op/gpu-lab</span>
+      </a>
+    </div>
+  </section>
+
+  <div class="site-foot">
+    <span>© 2026 Luis Ángel Muñoz Márquez · MIT</span>
+    <span class="pill">Three.js r128</span>
+    <span class="pill">WebGL 2.0</span>
+    <a href="https://github.com/luis06-op/gpu-lab">GitHub</a>
+    <a href="https://github.com/luis06-op/gpu-lab#readme">README</a>
+    <a href="index.html#rendimiento">Rendimiento</a>
   </div>
 
 </div>
 
-<script src="vendor/three.min.js"></script>
 <script>
 /* Detecta la tarjeta gráfica real y la muestra en la portada. */
 (function () {
   const el = document.getElementById('gpu-line');
   try {
-    const gl = document.createElement('canvas').getContext('webgl2') ||
-               document.createElement('canvas').getContext('webgl');
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
     if (!gl) { el.textContent = 'WebGL no disponible en este navegador'; return; }
     const ext = gl.getExtension('WEBGL_debug_renderer_info');
     const nombre = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
     const ver = gl.getParameter(gl.VERSION);
     const timer = !!gl.getExtension('EXT_disjoint_timer_query_webgl2');
-    el.innerHTML = 'Tu GPU · <b style="color:#00ff41">' + nombre + '</b> · ' +
-                   ver + (timer ? ' · cronómetro de GPU disponible' : '');
+    el.innerHTML = 'Tu GPU · <b style="color:#00ff41">' + nombre + '</b> · ' + ver +
+                   (timer ? ' · cronómetro de GPU disponible' : ' · sin cronómetro de GPU');
   } catch (e) {
     el.textContent = 'no se pudo leer la tarjeta gráfica';
   }
